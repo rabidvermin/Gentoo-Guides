@@ -102,17 +102,22 @@ blkid after the cfdisk write:
 > After formatting, verify with `cryptsetup luksDump /dev/nvme0n1p2` — if you see `PBKDF: argon2id` the setup will **not** boot.
 
 ```bash
-cryptsetup -v \
-  --cipher aes-xts-plain64 \
-  --key-size 512 \
-  --hash sha512 \
-  --iter-time 5000 \
-  --pbkdf argon2id \
-  --type luks1 \
-  --use-random \
-  --verify-passphrase \
-  luksFormat /dev/nvme0n1p2
+ cryptsetup -v \
+    --cipher aes-xts-plain64 \
+    --key-size 512 \
+    --hash sha512 \
+    --iter-time 5000 \
+    --pbkdf pbkdf2 \
+    --type luks1 \
+    --use-random \
+    --verify-passphrase \
+    luksFormat /dev/nvme2n1p2
 ```
+
+Here is a sample result:
+<img width="1017" height="178" alt="image" src="https://github.com/user-attachments/assets/d54dd29a-ba7f-491b-aa0b-27b1029b0415" />
+
+
 
 Verify the header:
 
@@ -120,11 +125,13 @@ Verify the header:
 cryptsetup luksDump /dev/nvme0n1p2
 ```
 
+<img width="644" height="421" alt="image" src="https://github.com/user-attachments/assets/bb912167-2b2a-47c7-8b7b-d8537430ad48" />
+
+
+
 See also:
 - https://forums.gentoo.org/viewtopic-t-1171423-start-0.html
 - https://forums.gentoo.org/viewtopic-p-8819261.html
-
-![Step 2 — luksDump verification](images/image002.png)
 
 ---
 
@@ -133,48 +140,65 @@ See also:
 > Note: use `_` instead of `-` in the mapper name on future installs to avoid confusion.
 
 ```bash
-cryptsetup luksOpen --allow-discards /dev/nvme0n1p2 Cybernetica_LUKS
+cryptsetup luksOpen --allow-discards /dev/nvme0n1p2 <HOSTNAME>_LUKS
 ```
 
 ![Step 3 — LUKS container opened](images/image003.png)
+
+confirm the container is up with the command 
+```bash
+ls -l /dev/mapper/Mindpalace_LUKS
+```
+
+<img width="766" height="65" alt="image" src="https://github.com/user-attachments/assets/50b51a75-c1bc-4f58-ba37-69e0308d33f9" />
+
 
 ---
 
 ## Step 4. LVM Setup
 
+Replace <HOSTNAME> with your systems hostname:
+
 ```bash
-pvcreate /dev/mapper/Cybernetica_LUKS
-vgcreate vg_Cybernetica /dev/mapper/Cybernetica_LUKS
+pvcreate /dev/mapper/<HOSTNAME>_LUKS
+vgcreate vg_<HOSTNAME> /dev/mapper/<HOSTNAME>_LUKS
 
-lvcreate -L64G   -Cy -n swap            vg_Cybernetica
-lvcreate -L10G       -n rootfs           vg_Cybernetica
-lvcreate -L20G       -n usr              vg_Cybernetica
-lvcreate -L10G       -n var              vg_Cybernetica
-lvcreate -L10G       -n opt              vg_Cybernetica
-lvcreate -L10G       -n portage          vg_Cybernetica
-lvcreate -L10G       -n src              vg_Cybernetica
-lvcreate -L200G      -n home             vg_Cybernetica
-lvcreate -L600G      -n virtualmachines  vg_Cybernetica
+lvcreate -L64G   -Cy -n swap            vg_<HOSTNAME>
+lvcreate -L10G       -n rootfs           vg_<HOSTNAME>
+lvcreate -L40G       -n usr              vg_<HOSTNAME>
+lvcreate -L20G       -n var              vg_<HOSTNAME>
+lvcreate -L20G       -n opt              vg_<HOSTNAME>
+lvcreate -L30G       -n portage          vg_<HOSTNAME>
+lvcreate -L10G       -n src              vg_<HOSTNAME>
+lvcreate -L200G      -n home             vg_<HOSTNAME>
+lvcreate -L600G      -n data             vg_<HOSTNAME>
+mkswap /dev/mapper/vg_<HOSTNAME>-swap
+mkfs.vfat -F32 /dev/nvme2n1p1
 
-mkswap /dev/mapper/vg_Cybernetica-swap
 ```
 
-![Step 4 — LVM volumes created](images/image004.png)
+<img width="551" height="407" alt="image" src="https://github.com/user-attachments/assets/122bf9c6-3a6a-4096-aa75-134b9ce195e0" />
+
 
 ---
 
 ## Step 5. Format Volumes
 
+Disks can re resized later, that is why we are using LVM. Something to remember ext4 cannot be sized down without shutting the system off and performing the resize unmounted. 
+An alternative file system, btrfs, can resize while the disks are running. 
+
+ext4:
+
 ```bash
-mkfs.ext4 /dev/mapper/vg_Cybernetica-home
-mkfs.ext4 /dev/mapper/vg_Cybernetica-opt
-mkfs.ext4 /dev/mapper/vg_Cybernetica-portage
-mkfs.ext4 /dev/mapper/vg_Cybernetica-rootfs
-mkfs.ext4 /dev/mapper/vg_Cybernetica-src
-mkfs.ext4 /dev/mapper/vg_Cybernetica-usr
-mkfs.ext4 /dev/mapper/vg_Cybernetica-var
-mkfs.ext4 /dev/mapper/vg_Cybernetica-virtualmachines
-mkswap    /dev/mapper/vg_Cybernetica-swap
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-home
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-opt
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-portage
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-rootfs
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-src
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-usr
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-var
+mkfs.ext4 /dev/mapper/vg_<HOSTNAME>-data
+mkswap    /dev/mapper/vg_<HOSTNAME>-swap
 ```
 
 ![Step 5 — volumes formatted](images/image005.png)
@@ -192,25 +216,27 @@ mkdir /mnt/install
 ### Step 7. Activate swap
 
 ```bash
-swapon /dev/mapper/vg_Cybernetica-swap
+swapon /dev/mapper/vg_<HOSTNAME>-swap
 ```
 
 ### Step 8. Mount root filesystem
 
 ```bash
-mount /dev/mapper/vg_Cybernetica-rootfs /mnt/install
+mount /dev/mapper/vg_<HOSTNAME>-rootfs /mnt/install
 ```
 
 ### Step 9. Create and mount top-level directories + tmpfs
 
 ```bash
-mkdir /mnt/install/{home,var,virtualmachines,src,opt,usr,tmp}
+mkdir /mnt/install/{home,var,data,src,opt,usr,tmp,portage}
 
-mount /dev/mapper/vg_Cybernetica-home            /mnt/install/home
-mount /dev/mapper/vg_Cybernetica-var             /mnt/install/var
-mount /dev/mapper/vg_Cybernetica-virtualmachines /mnt/install/virtualmachines
-mount /dev/mapper/vg_Cybernetica-opt             /mnt/install/opt
-mount /dev/mapper/vg_Cybernetica-usr             /mnt/install/usr
+mount /dev/mapper/vg_<HOSTNAME>-home            /mnt/install/home
+mount /dev/mapper/vg_<HOSTNAME>-var             /mnt/install/var
+mount /dev/mapper/vg_<HOSTNAME>-virtualmachines /mnt/install/data
+mount /dev/mapper/vg_<HOSTNAME>-opt             /mnt/install/opt
+mount /dev/mapper/vg_<HOSTNAME>-usr             /mnt/install/usr
+mount /dev/mapper/vg_<HOSTNAME>-portage         /mnt/install/usr/portage
+mount /dev/mapper/vg_<HOSTNAME>-src             /mnt/install/usr/src
 
 mkdir /mnt/install/var/tmp
 mount -t tmpfs -o size=1G  tmpfs /mnt/install/tmp
