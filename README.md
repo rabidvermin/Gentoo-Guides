@@ -33,33 +33,65 @@ Full-disk encryption (LUKS1 + LVM) on UEFI/NVMe, using OpenRC and a binary kerne
 
 ---
 
+## Step 0. Preparation
+
+Use nearly any Linux Live ISO to boot the system. The one to select is dependant up on your system. For instance, the Gentoo Live ISO had challenges with an Nvidia RTX 5080. CachyOS was used in that instance as an alternative. There will be a trail and error process once you boot the system to see if it will work.
+
+TIPS: 
+
+1. Once booted, you can turn on SSH and the work on your built remotely from another system.
+2. You can use an AI harness (Claude Code and others), give it an SSH key and have it log into the system to assist you. I have not used AI for a full install yet, but it may likely work.
+
+---
+
 ## Step 1. Partitioning
 
-```bash
-cfdisk /dev/nvme0n1
-```
 Use the lsblk and blkid commands to get a list of disks, make sure you only select the disk you want to install on:
+<img width="1034" height="408" alt="image" src="https://github.com/user-attachments/assets/a9d49e32-cf51-40cd-bcec-baacea102077" />    
+<br>
+  
 
-If prompted, select gpt for the label type
+Use cfdisk to start your parition process. Make sure to replace the device with the disk you intenad to install Gentoo on, be cautious when working on a multidisk system where other devices have data you wish to retain. 
+
+```bash
+cfdisk /dev/nvme2n1
+```  
+<br>
+
+
+If prompted, select gpt for the label type:
 
 <img width="881" height="523" alt="image" src="https://github.com/user-attachments/assets/f6fdf84b-f069-49f5-ac4a-5c14241b2f13" />
+<br>
+  
 
 
 Set partition 1 type to **EFI System**.
 
 <img width="426" height="187" alt="image" src="https://github.com/user-attachments/assets/6ab0cc8c-e400-4728-aa93-d95c6bc0ebf2" />
-
+<br>
 
 You should see this now:
 <img width="1031" height="200" alt="image" src="https://github.com/user-attachments/assets/3749b93a-bc24-4662-8ad7-187563fc2251" />
+<br>
 
 Partition the rest of the disk with type Linux File System (it will be selected automatically and safe to leave it that way), then select write:
 
 <img width="1034" height="294" alt="image" src="https://github.com/user-attachments/assets/f6c84745-c502-47c7-b743-f9bf597decd4" />
+<br>
 
 
+lsblk after cfdisk write:
 
-![Step 1 — cfdisk output](images/image001.png)
+<img width="388" height="74" alt="image" src="https://github.com/user-attachments/assets/df1963b2-db5d-4b59-a6db-e72a771f0dd9" />
+<br>
+
+
+blkid after the cfdisk write:
+
+<img width="599" height="93" alt="image" src="https://github.com/user-attachments/assets/a369d6d2-1353-40a0-b9f3-a15db677384d" />
+<br>
+
 
 ---
 
