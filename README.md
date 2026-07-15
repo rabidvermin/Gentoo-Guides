@@ -294,9 +294,9 @@ sha256sum stage3-amd64-desktop-openrc-20250727T163903Z.tar.xz
 ## Step 14. Unpack Stage3
 
 ```bash
-cp -a stage3-amd64-desktop-openrc-20250727T163903Z.tar.xz /mnt/install/
-tar xvjpf stage3-amd64-desktop-openrc-20250727T163903Z.tar.xz \
-    --xattrs --numeric-owner
+cp -a stage3-amd64-desktop-openrc-20260712T170110Z.tar.xz /mnt/install/
+[root@CachyOS install]# tar xpvf stage3-amd64-desktop-openrc-20260712T170110Z.tar.xz --xattrs-include='*.*' --numeric-owner
+
 ```
 
 ---
@@ -320,7 +320,7 @@ mount --rbind /dev       /mnt/install/dev
 ### Step 17. Mount EFI partition
 
 ```bash
-mount /dev/nvme0n1p1 /mnt/install/boot
+mount /dev/nvme0n1p1 /mnt/install/efi
 ```
 
 ### Step 18. Enter the chroot
@@ -361,6 +361,9 @@ eselect profile list
 eselect profile set 7
 ```
 
+<img width="692" height="861" alt="image" src="https://github.com/user-attachments/assets/e30a01c7-7297-413d-9567-6c76f8adcf9c" />
+
+
 ---
 
 ## Steps 23–25. Base Configuration
@@ -370,6 +373,8 @@ eselect profile set 7
 ```bash
 emerge app-editors/vim
 ```
+
+
 
 ### Step 24a. Tune make.conf
 
@@ -381,6 +386,59 @@ cat /proc/cpuinfo
 
 # Edit make.conf
 vim /etc/portage/make.conf
+```
+
+Sample make.conf for skylake CPU:
+
+```
+# /etc/portage/make.conf
+# <HOSTNAME> — Intel i9-9900K (Skylake-class, 8c/16t), 128 GB RAM, RTX 5080
+
+# ---- Compiler flags: dialed in for THIS CPU (skylake == the 9900K) ----
+COMMON_FLAGS="-O2 -pipe -march=skylake -mtune=skylake \
+-mmmx -msse -msse2 -msse3 -mssse3 -msse4.1 -msse4.2 -mpopcnt \
+-mavx -mavx2 -mfma -mf16c -mbmi -mbmi2 -maes -mpclmul \
+-madx -mabm -mlzcnt -mmovbe -mprfchw -mrdrnd -mrdseed \
+-mfsgsbase -mfxsr -msahf -mcx16 -mclflushopt -msgx \
+-mxsave -mxsavec -mxsaveopt -mxsaves \
+--param l1-cache-size=32 --param l1-cache-line-size=64 --param l2-cache-size=16384"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+FCFLAGS="${COMMON_FLAGS}"
+FFLAGS="${COMMON_FLAGS}"
+# Shortcut equivalent for a portable guide: COMMON_FLAGS="-march=native -O2 -pipe"
+
+# ---- CPU SIMD feature flags (verify in chroot with: cpuid2cpuflags) ----
+CPU_FLAGS_X86="aes avx avx2 f16c fma3 mmx mmxext pclmul popcnt rdrand sse sse2 sse3 sse4_1 sse4_2 ssse3"
+
+# ---- Parallel build tuning (16 threads / 128 GB — core-bound) ----
+MAKEOPTS="-j16 -l18"
+EMERGE_DEFAULT_OPTS="--jobs=3 --load-average=18 --keep-going --verbose"
+FEATURES="candy parallel-fetch"
+PORTAGE_NICENESS="5"
+
+# ---- Hardware ----
+VIDEO_CARDS="nvidia"        # RTX 5080 (Blackwell) — see driver note below
+INPUT_DEVICES="libinput"
+GRUB_PLATFORMS="efi-64"
+
+# ---- Licenses (NVIDIA driver is non-free) ----
+ACCEPT_LICENSE="*"
+
+# ---- USE (starter set; the desktop/plasma profile provides most — refine to taste) ----
+USE="X wayland elogind dbus networkmanager pipewire -systemd"
+
+# ---- Keep build output in English for bug reports ----
+LC_MESSAGES=C.UTF-8
+
+# ---- Optional: binary host for the monster packages (rust/llvm/chromium/etc.) ----
+# After configuring /etc/portage/binrepos.conf + `getuto`, uncomment:
+# FEATURES="${FEATURES} getbinpkg binpkg-request-signature"
+# EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg"
+
+GENTOO_MIRRORS="https://mirrors.ocf.berkeley.edu/gentoo-distfiles https://distfiles.gentoo.org https://mirrors.rit.edu/gentoo https://gentoo.osuosl.org"
+
+
 ```
 
 ### Step 24b. Set timezone
@@ -401,7 +459,7 @@ locale-gen
 locale -a
 
 eselect locale list
-eselect locale set 4
+eselect locale set en_US.utf8
 
 env-update && source /etc/profile && export PS1="(chroot) $PS1"
 ```
@@ -537,7 +595,7 @@ grep CRYPTODISK /etc/default/grub
 ### Step 34. Generate GRUB config
 
 ```bash
-grub-mkconfig -o /boot/grub/grub.cfg
+grub-mkconfig -o /efi/grub/grub.cfg
 ```
 
 ---
