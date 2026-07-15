@@ -36,10 +36,19 @@ Full-disk encryption (LUKS1 + LVM) on UEFI/NVMe, using OpenRC and a binary kerne
 ## Step 1. Partitioning
 
 ```bash
-cfdisk nvme0n1
+cfdisk /dev/nvme0n1
 ```
+Use the lsblk and blkid commands to get a list of disks, make sure you only select the disk you want to install on:
+
+If prompted, select gpt for the label type
+
+<img width="881" height="523" alt="image" src="https://github.com/user-attachments/assets/f6fdf84b-f069-49f5-ac4a-5c14241b2f13" />
+
 
 Set partition 1 type to **EFI System**.
+
+<img width="426" height="187" alt="image" src="https://github.com/user-attachments/assets/6ab0cc8c-e400-4728-aa93-d95c6bc0ebf2" />
+
 
 ![Step 1 — cfdisk output](images/image001.png)
 
