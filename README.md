@@ -50,6 +50,15 @@ Set partition 1 type to **EFI System**.
 <img width="426" height="187" alt="image" src="https://github.com/user-attachments/assets/6ab0cc8c-e400-4728-aa93-d95c6bc0ebf2" />
 
 
+You should see this now:
+<img width="1031" height="200" alt="image" src="https://github.com/user-attachments/assets/3749b93a-bc24-4662-8ad7-187563fc2251" />
+
+Partition the rest of the disk with type Linux File System (it will be selected automatically and safe to leave it that way), then select write:
+
+<img width="1034" height="294" alt="image" src="https://github.com/user-attachments/assets/f6c84745-c502-47c7-b743-f9bf597decd4" />
+
+
+
 ![Step 1 — cfdisk output](images/image001.png)
 
 ---
