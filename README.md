@@ -10,10 +10,10 @@ Personal, battle-tested guides for building and running Gentoo.
 ## Roadmap
 
 - [x] LUKS1 + LVM base install
-- [ ] Variable-driven commands (`HOST` / `DISK`)
-- [ ] NVIDIA (Blackwell / RTX 50-series) appendix
-- [ ] KDE Plasma desktop appendix
-- [ ] Helper scripts (`scripts/`)
+- [x] Variable-driven commands (`HOST` / `DISK`)
+- [x] NVIDIA (Blackwell / RTX 50-series) appendix
+- [x] KDE Plasma desktop appendix
+- [x] Helper scripts ([`scripts/`](scripts/))
 
 ## References
 
