@@ -64,6 +64,8 @@ VG=vg_${HOST}            # LVM volume group name
 
 > **NVMe naming:** partitions use a `p` separator (`/dev/nvme2n1p1`), unlike SATA/USB disks (`/dev/sda1`). The `${DISK}p1` form handles this. For a SATA/USB target, use `EFI=${DISK}1` / `LUKS=${DISK}2` instead.
 
+> **⚡ Optional scripted fast-path:** the [`scripts/`](../scripts/) directory automates the repetitive steps (LVM, format, mount, chroot prep, teardown) off these same variables — edit `scripts/00-config.sh` once and run the numbered scripts. Partitioning and LUKS stay manual. See [`scripts/README.md`](../scripts/README.md). The manual steps below still work exactly as written.
+
 ---
 
 ## Step 1. Partitioning
