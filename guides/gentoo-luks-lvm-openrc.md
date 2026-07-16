@@ -29,8 +29,11 @@ Full-disk encryption (LUKS1 + LVM) on UEFI/NVMe, using OpenRC and a binary kerne
 18. [Install Kernel](#step-30-install-kernel)
 19. [GRUB](#steps-31-34-grub)
 20. [Finalise](#step-35-set-root-password)
-21. [fstab Example](#fstab-example)
-22. [References](#references)
+21. [Teardown & First Boot](#teardown--first-boot)
+22. [Appendix A — NVIDIA (RTX 50-series) Driver](#appendix-a--nvidia-rtx-50-series-driver)
+23. [Appendix B — KDE Plasma Desktop](#appendix-b--kde-plasma-desktop)
+24. [fstab Example](#fstab-example)
+25. [References](#references)
 
 ---
 
@@ -701,6 +704,108 @@ reboot
 ```
 
 On first boot you'll be prompted for the LUKS passphrase **twice** — once by GRUB (to read encrypted `/boot`), once by the initramfs (to unlock root). That's expected; a keyfile embedded in the initramfs can eliminate the second prompt.
+
+---
+
+## Appendix A — NVIDIA (RTX 50-series) Driver
+
+For an NVIDIA GPU (this build used an **RTX 5080 / Blackwell**). Do this after first boot into the installed system, as root.
+
+`VIDEO_CARDS="nvidia"` should already be in `make.conf` (Step 24a). Blackwell (RTX 50-series) needs `nvidia-drivers` **≥ 570**; on **595+** the **open kernel modules are the default** (there is no `kernel-open` USE flag to set — it auto-selects open for these GPUs). The proprietary closed module and `nouveau` do **not** properly support the 50-series.
+
+```bash
+# 1. Enable the dist-kernel USE flag so the nvidia module auto-rebuilds
+#    whenever gentoo-kernel-bin updates (you use a distribution kernel)
+echo "x11-drivers/nvidia-drivers dist-kernel" >> /etc/portage/package.use/nvidia
+
+# 2. Install the driver (builds the open modules for Blackwell)
+emerge -av x11-drivers/nvidia-drivers
+
+# 3. Enable DRM KMS modeset — REQUIRED for Wayland
+echo "options nvidia-drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
+
+# 4. Confirm nouveau is blacklisted (the ebuild normally installs one)
+grep -rl nouveau /usr/lib/modprobe.d/ /etc/modprobe.d/ 2>/dev/null || \
+  echo "blacklist nouveau" > /etc/modprobe.d/blacklist-nouveau.conf
+
+# 5. Reboot to unload nouveau and load nvidia
+reboot
+```
+
+> If step 2 reports the version is masked, add `echo "x11-drivers/nvidia-drivers ~amd64" >> /etc/portage/package.accept_keywords/nvidia` and retry. Make sure your user is in the `video` group.
+
+Verify after the reboot:
+
+```bash
+lsmod | grep -iE 'nvidia|nouveau'          # nvidia loaded, nouveau gone
+lspci -k -s 01:00.0 | grep -i "kernel driver"   # -> nvidia
+nvidia-smi                                  # driver <-> GPU handshake
+ls -l /dev/dri/card0                        # DRM/KMS node bound to nvidia (proves modeset)
+```
+
+---
+
+## Appendix B — KDE Plasma Desktop
+
+Requires the `desktop/plasma` profile (Step 22). Do this after the NVIDIA driver (if any) is working, as root.
+
+**Speed tip — enable the binhost first.** Compiling full Plasma + Qt from source is a multi-hour job (Qt WebEngine alone can overflow a small `/var/tmp` tmpfs). The official binhost turns most of it into downloads:
+
+```bash
+getuto            # if missing: emerge -1 app-portage/getuto && getuto
+# then uncomment the two binhost lines in make.conf (Step 24a):
+sed -i 's/^# FEATURES=/FEATURES=/; s/^# EMERGE_DEFAULT_OPTS=/EMERGE_DEFAULT_OPTS=/' /etc/portage/make.conf
+```
+
+Install Plasma + the display manager:
+
+```bash
+# seat/session manager — REQUIRED for Plasma on OpenRC
+rc-update add elogind boot
+
+# the desktop + SDDM (autounmask may prompt — see note below)
+emerge -av kde-plasma/plasma-meta x11-misc/sddm
+
+# point the OpenRC display-manager wrapper at SDDM and enable it
+echo 'DISPLAYMANAGER="sddm"' > /etc/conf.d/display-manager
+rc-update add display-manager default
+
+# start it now (or reboot)
+rc-service display-manager start
+```
+
+> **Autounmask:** a large Plasma pull often needs USE changes (e.g. `sys-libs/minizip-ng compat`). Run `emerge -av --autounmask-write kde-plasma/plasma-meta x11-misc/sddm`, then `dispatch-conf` (press `u` to accept the additions), then re-run the emerge.
+
+### ⚠️ NVIDIA + Wayland: prefer the X11 session at first
+
+On a fresh RTX 50-series card the Plasma **Wayland** compositor (`kwin_wayland`) can hard-wedge (spins at high CPU, screen frozen). At the SDDM login, pick **"Plasma (X11)"** — it's far more stable on NVIDIA and a quick A/B test. If Wayland *does* freeze, recover without a full reboot:
+
+```bash
+# from SSH or a text console (Ctrl+Alt+F3):
+loginctl terminate-session <graphical-session-id>   # loginctl to find it
+# if the greeter doesn't respawn, as root:
+rc-service display-manager restart
+```
+
+### Useful apps (curated, not the giant meta)
+
+```bash
+emerge -av \
+  kde-apps/konsole kde-apps/dolphin kde-apps/kate kde-apps/ark \
+  kde-apps/spectacle kde-apps/gwenview kde-apps/okular \
+  kde-apps/kcalc kde-apps/kfind kde-apps/kwalletmanager \
+  www-client/firefox
+```
+
+> `kde-apps/kde-apps-meta` pulls *hundreds* of apps — the curated set above (terminal, file manager, editor, archives, screenshots, image/PDF viewers) is usually what you want.
+
+### Recompiling from source later
+
+Binhost packages are built with **generic** flags, not your `-march=skylake` tuning. To re-optimize everything for your CPU, turn the binhost back off (re-comment the two make.conf lines) and run a source rebuild overnight:
+
+```bash
+emerge --emptytree --usepkg=n @world
+```
 
 ---
 
