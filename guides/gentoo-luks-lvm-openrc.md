@@ -2,7 +2,7 @@
 
 Full-disk encryption (LUKS1 + LVM) on UEFI/NVMe, using OpenRC and a binary kernel.
 
-> **Last updated:** 2026-07-16
+> **Last updated:** 2026-09-12
 
 ---
 
@@ -30,10 +30,11 @@ Full-disk encryption (LUKS1 + LVM) on UEFI/NVMe, using OpenRC and a binary kerne
 19. [GRUB](#steps-31-34-grub)
 20. [Finalise](#step-35-set-root-password)
 21. [Teardown & First Boot](#teardown--first-boot)
-22. [Appendix A — NVIDIA (RTX 50-series) Driver](#appendix-a--nvidia-rtx-50-series-driver)
+22. [Appendix A — NVIDIA Driver](#appendix-a--nvidia-driver)
 23. [Appendix B — KDE Plasma Desktop](#appendix-b--kde-plasma-desktop)
-24. [fstab Example](#fstab-example)
-25. [References](#references)
+24. [Appendix C — Laptop Extras](#appendix-c--laptop-extras)
+25. [fstab Example](#fstab-example)
+26. [References](#references)
 
 ---
 
@@ -180,6 +181,8 @@ ls -l /dev/mapper/${HOST}_LUKS
 ---
 
 ## Step 4. LVM Setup
+
+> **Size to your actual disk.** The sizes below (totaling ~994G) matched a 2TB drive. Run `vgs "$VG"` after `vgcreate` to see how much space you actually have, and scale every `lvcreate -L` down proportionally — don't copy these numbers onto a smaller disk. It's also fine to leave space **unallocated** in the VG rather than assigning 100% of it up front (e.g. to `data`); unallocated space can be handed to any LV later with `lvextend`, but shrinking `data` back down after the fact is much more painful.
 
 ```bash
 pvcreate /dev/mapper/${HOST}_LUKS
@@ -352,8 +355,12 @@ cp -L /etc/resolv.conf /mnt/install/etc/
 ```bash
 mount -t proc none       /mnt/install/proc
 mount --rbind /sys       /mnt/install/sys
+mount --make-rslave      /mnt/install/sys
 mount --rbind /dev       /mnt/install/dev
+mount --make-rslave      /mnt/install/dev
 ```
+
+> **Don't skip `--make-rslave`.** Most live ISOs (this includes CachyOS/systemd-based ones) mount `/sys` and `/dev` with **shared** propagation. A plain `--rbind` copies that propagation into the chroot too — so if you ever unmount something *inside* `/mnt/install/sys` or `/mnt/install/dev` later (e.g. cleaning up a botched double-mount), the unmount can propagate back out and tear down the **live host's own** `/sys/fs/cgroup`, `/sys/kernel/security`, `/sys/firmware/efi/efivars`, `/dev/pts`, or `/dev/shm` — this has actually happened during a real install. `--make-rslave` converts the copy to a one-way (slave) relationship: it still receives updates from the host, but nothing you do inside the chroot's copy can propagate back out. If you do end up breaking the host's own mounts this way, remount them directly (`mount -t efivarfs efivarfs /sys/firmware/efi/efivars`, `mount -t securityfs securityfs /sys/kernel/security`, `mount -t cgroup2 cgroup2 /sys/fs/cgroup -o nsdelegate`, `mount -t devpts devpts /dev/pts`, `mount -t tmpfs tmpfs /dev/shm`) and `systemctl reset-failed` to clear any cosmetic session-scope failures.
 
 ### Step 17. Mount EFI partition
 
@@ -685,7 +692,11 @@ rc-update add elogind boot
 rc-update add dbus default
 rc-update add NetworkManager default
 rc-update add sshd default
+rc-update add cronie default
+rc-update add syslog-ng default
 ```
+
+> **Don't skip `cronie`/`syslog-ng`.** Step 26 installs both, but *installed* is not *enabled* — an uninstalled cron daemon means `logrotate` (also installed in Step 26, via `sys-process/cronbase`'s `/etc/cron.d/dailyjobs` → `/etc/cron.daily/logrotate`) never actually fires. This has silently let a `/var/log/messages` grow past 1GB on a real install before it was caught. Confirm both ended up running after first boot with `rc-status`.
 
 ---
 
@@ -707,20 +718,26 @@ reboot
 
 On first boot you'll be prompted for the LUKS passphrase **twice** — once by GRUB (to read encrypted `/boot`), once by the initramfs (to unlock root). That's expected; a keyfile embedded in the initramfs can eliminate the second prompt.
 
+> **Troubleshooting `umount: target is busy`:** the most common cause isn't a stuck bind mount — it's a chroot shell you forgot to `exit` (e.g. one left open in another terminal from setting the root/user password). Find it with `fuser -vm /mnt/install` or `ps aux | grep bash`, exit or kill it, then retry the unmounts.
+>
+> **Don't panic if `/dev/nvmeN` names look different after reboot.** NVMe enumeration order isn't guaranteed stable between the live environment and the installed system's own kernel — a disk that was `nvme1n1` during install can become `nvme0n1` on first boot (and vice versa). This is harmless *as long as you used UUIDs* for fstab, GRUB, and the dracut `kernel_cmdline` (as this guide does throughout) — nothing here refers to a disk by its `/dev/nvmeN` name. Double-check with `blkid` if anything looks off, rather than trusting `lsblk`'s device names.
+
 ---
 
-## Appendix A — NVIDIA (RTX 50-series) Driver
+## Appendix A — NVIDIA Driver
 
-For an NVIDIA GPU (this build used an **RTX 5080 / Blackwell**). Do this after first boot into the installed system, as root.
+For an NVIDIA GPU. Do this after first boot into the installed system, as root.
 
-`VIDEO_CARDS="nvidia"` should already be in `make.conf` (Step 24a). Blackwell (RTX 50-series) needs `nvidia-drivers` **≥ 570**; on **595+** the **open kernel modules are the default** (there is no `kernel-open` USE flag to set — it auto-selects open for these GPUs). The proprietary closed module and `nouveau` do **not** properly support the 50-series.
+`VIDEO_CARDS="nvidia"` should already be in `make.conf` (Step 24a). This guide has now confirmed **open kernel modules built by default with no `kernel-open` USE flag needed** on `nvidia-drivers` **595.x** across two different GPU generations: an **RTX 5080 (Blackwell)** desktop and a **T600 Mobile (Turing)** laptop. So this isn't a Blackwell-specific quirk — on 595.x the ebuild appears to default to open modules broadly. Verify what you actually got with `modinfo nvidia | grep license`: `Dual MIT/GPL` means open modules, `NVIDIA` means the closed/proprietary build. If you're on an older/unsupported GPU where open modules aren't available, the proprietary closed module remains the fallback; `nouveau` is not a substitute for either on any reasonably recent NVIDIA GPU.
+
+If your laptop has **hybrid/Optimus graphics** (an Intel or AMD iGPU alongside the NVIDIA GPU), also set `VIDEO_CARDS="intel nvidia"` (or `amdgpu nvidia`) so both drivers get built — the display is usually driven entirely by the integrated GPU on muxless designs, with NVIDIA available for PRIME render offload.
 
 ```bash
 # 1. Enable the dist-kernel USE flag so the nvidia module auto-rebuilds
 #    whenever gentoo-kernel-bin updates (you use a distribution kernel)
 echo "x11-drivers/nvidia-drivers dist-kernel" >> /etc/portage/package.use/nvidia
 
-# 2. Install the driver (builds the open modules for Blackwell)
+# 2. Install the driver
 emerge -av x11-drivers/nvidia-drivers
 
 # 3. Enable DRM KMS modeset — REQUIRED for Wayland
@@ -759,14 +776,17 @@ getuto            # if missing: emerge -1 app-portage/getuto && getuto
 sed -i 's/^# FEATURES=/FEATURES=/; s/^# EMERGE_DEFAULT_OPTS=/EMERGE_DEFAULT_OPTS=/' /etc/portage/make.conf
 ```
 
-Install Plasma + the display manager:
+Install Plasma + the display manager **and** a usable set of apps in the same pull — `plasma-meta` alone gives you a desktop with **no terminal emulator**, which is easy to not notice until you actually need one:
 
 ```bash
 # seat/session manager — REQUIRED for Plasma on OpenRC
 rc-update add elogind boot
 
-# the desktop + SDDM (autounmask may prompt — see note below)
-emerge -av kde-plasma/plasma-meta x11-misc/sddm
+# the desktop + SDDM + a curated app set, in one go (autounmask may prompt — see note below)
+emerge -av kde-plasma/plasma-meta x11-misc/sddm \
+  kde-apps/konsole kde-apps/dolphin kde-apps/kate kde-apps/ark \
+  kde-apps/gwenview kde-apps/okular kde-apps/kcalc kde-apps/kfind \
+  kde-apps/kwalletmanager www-client/firefox
 
 # point the OpenRC display-manager wrapper at SDDM and enable it
 echo 'DISPLAYMANAGER="sddm"' > /etc/conf.d/display-manager
@@ -776,7 +796,11 @@ rc-update add display-manager default
 rc-service display-manager start
 ```
 
-> **Autounmask:** a large Plasma pull often needs USE changes (e.g. `sys-libs/minizip-ng compat`). Run `emerge -av --autounmask-write kde-plasma/plasma-meta x11-misc/sddm`, then `dispatch-conf` (press `u` to accept the additions), then re-run the emerge.
+> `kde-apps/kde-apps-meta` pulls *hundreds* of apps — the curated set above (terminal, file manager, editor, archives, image/PDF viewers, browser) is usually what you actually want. `kde-apps/spectacle` (screenshots) isn't listed because `plasma-meta` already pulls it in transitively (as `kde-plasma/spectacle` in recent trees).
+>
+> **Autounmask:** a large Plasma pull often needs USE changes (e.g. `sys-libs/minizip-ng compat`). Run the same command with `--autounmask-write` added, then `dispatch-conf` (press `u` to accept the additions) — or, simpler, just open the resulting `._cfg0000_<file>` under `/etc/portage/package.use/` and move its suggested line into its own file — then re-run the emerge.
+>
+> **Speeding this up further:** if the binhost is enabled (above) but a package still builds from source, it's usually because its prebuilt binary doesn't match your custom `CPU_FLAGS_X86` (e.g. `media-libs/opencv`, pulled in as a Plasma dependency, commonly does this if you set AVX-512 flags in Step 24a) — that one package building from source while everything else downloads as a binary is expected, not a sign something's wrong.
 
 ### ⚠️ NVIDIA + Wayland: prefer the X11 session at first
 
@@ -789,18 +813,6 @@ loginctl terminate-session <graphical-session-id>   # loginctl to find it
 rc-service display-manager restart
 ```
 
-### Useful apps (curated, not the giant meta)
-
-```bash
-emerge -av \
-  kde-apps/konsole kde-apps/dolphin kde-apps/kate kde-apps/ark \
-  kde-apps/spectacle kde-apps/gwenview kde-apps/okular \
-  kde-apps/kcalc kde-apps/kfind kde-apps/kwalletmanager \
-  www-client/firefox
-```
-
-> `kde-apps/kde-apps-meta` pulls *hundreds* of apps — the curated set above (terminal, file manager, editor, archives, screenshots, image/PDF viewers) is usually what you want.
-
 ### Recompiling from source later
 
 Binhost packages are built with **generic** flags, not your `-march=skylake` tuning. To re-optimize everything for your CPU, turn the binhost back off (re-comment the two make.conf lines) and run a source rebuild overnight:
@@ -808,6 +820,26 @@ Binhost packages are built with **generic** flags, not your `-march=skylake` tun
 ```bash
 emerge --emptytree --usepkg=n @world
 ```
+
+---
+
+## Appendix C — Laptop Extras
+
+This guide's first two builds (Cybernetica, Mindpalace) were both desktops. If you're installing on a laptop, add these to Step 26's package list:
+
+```bash
+emerge sys-power/tlp net-wireless/bluez
+```
+
+```bash
+rc-update add tlp default
+rc-update add bluetooth default
+```
+
+- `sys-power/tlp` — battery/power management; the ebuild's own service handles most of it out of the box.
+- `net-wireless/bluez` — needed for any onboard Bluetooth (common on the same combo card as the WiFi chip, e.g. Intel AX-series). Remember to `rc-update add bluetooth default` — installing it isn't enough, same lesson as `cronie` above.
+- If you have hybrid/Optimus graphics, see the note in **Appendix A** about setting `VIDEO_CARDS` for both GPUs.
+- A transient `Bluetooth: hci0: Failed to send firmware data (-38)` in `dmesg` on the first boot or two, followed by a successful retry a few seconds later, is normal Intel BT firmware-load noise — not a fault, as long as it's followed by `Firmware loaded` / `Device booted` lines.
 
 ---
 
